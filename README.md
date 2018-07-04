@@ -1,4 +1,4 @@
-# serverless-voicemail
+# serverless-connect-voicemail
 
 A [Serverless Framework](https://github.com/serverless/serverless) project containing lamba's used to enable of voicemail functionality using Amazon Connect call recoding functionality.  
 
