@@ -1,0 +1,41 @@
+{
+  "Version" : "2012-10-17",
+  "Id" : "key-policy-1",
+  "Statement" : [
+    {
+      "Sid" : "Allow Amazon Contact to encrypt call recordings as it creates them",
+      "Effect" : "Allow",
+      "Principal" : {
+        "AWS" : [
+          "${self:custom.params.amazonConnectAccessRoleArn}"
+        ]
+      },
+      "Action" : [ "kms:Encrypt" ],
+      "Resource" : "*"
+    },
+    {
+      "Sid" : "Allow voicemail processing lambda to decrypt call recordings",
+      "Effect" : "Allow",
+      "Principal" : {
+        "AWS" : [
+          "arn:aws:iam::#{AWS::AccountId}:role/${self:functions.processVoicemail.iamRoleStatementsName}"
+        ]
+      },
+      "Action" : [ "kms:Decrypt" ],
+      "Resource" : "*"
+    },
+    {
+      "Sid" : "Enable administration of the key",
+      "Effect" : "Allow",
+      "Principal" : {
+        "AWS" : [
+          "arn:aws:iam::#{AWS::AccountId}:root",
+          // Insert your role here in place of operator:
+          "arn:aws:iam::#{AWS::AccountId}:role/operator"
+        ]
+      },
+      "Action" : "kms:*",
+      "Resource" : "*"
+    }
+  ]
+}

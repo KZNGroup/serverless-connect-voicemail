@@ -1,0 +1,169 @@
+service: serverless-voicemail
+
+provider:
+  name: aws
+  runtime: nodejs6.10
+  region: ${opt:region, 'us-east-1'} # Transcribe isn't in ap-southeast-2
+  stage: ${opt:stage, 'prod'}
+  logRetentionInDays: 30
+  memorySize: 128
+  timeout: 300
+
+custom:
+  params:
+    amazonConnectCcpUrl: 'https://YOUR_INSTANCE_ALIAS.awsapps.com/connect/ccp'
+    amazonConnectRegion: 'YOUR_CONNECT_REGION'
+    amazonConnectLogGroupName: '/aws/connect/YOUR_INSTANCE_ALIAS'
+    amazonConnectAccessRoleArn: 'YOUR_CONNECT_ACCESS_ROLE_ARN'
+    amazonConnectInstanceArn: 'YOUR_CONNECT_INSTANCE_ARN'
+    # These secret params need to be set in SSM Parameter store:
+    agentCcpUsername: ${ssm:/${self:service}/agentLogin/ccpUsername}
+    agentCcpPassword: ${ssm:/${self:service}/agentLogin/ccpPassword~true}
+    recordingRetentionInDays: 30
+
+  common:
+    voicemailBucket:  ${self:service}-recordings
+    agentLoginTopic: ${self:service}-AgentLogin
+    agentLoginTopicArn: "arn:aws:sns:#{AWS::Region}:#{AWS::AccountId}:${self:custom.common.agentLoginTopic}"
+    notificationTopic: ${self:service}-Notifications
+    notificationTopicArn: "arn:aws:sns:#{AWS::Region}:#{AWS::AccountId}:${self:custom.common.notificationTopic}"
+    amazonConnectLogGroup: "arn:aws:logs:${self:custom.params.amazonConnectRegion}:#{AWS::AccountId}:log-group:${self:custom.params.amazonConnectLogGroupName}:*"
+
+  # serverless plugins:
+  hooks:
+    package:initialize:
+      - npm run package
+  pseudoParameters:
+    allowReferences: true
+    skipRegionReplace: true
+
+functions:
+  agentLogin:
+    handler: agent.login
+    description: "Logs into the CCP as the voicemail agent/user and ensures they're Available to take calls."
+    memorySize: 1536 # uses 500MB, but higher memory gets more cpu
+    events:
+      - sns:
+          topicName: ${self:custom.common.agentLoginTopic}
+          displayName: Triggers lambda to ensure a voicemail agent is available to handle calls
+      - schedule: cron(0, 8, *, *, ?, *) # 4PM AWST daily
+    environment:
+      CCP_URL: ${self:custom.params.amazonConnectCcpUrl}
+      CCP_USERNAME: ${self:custom.params.agentCcpUsername}
+      CCP_PASSWORD: ${self:custom.params.agentCcpPassword}
+      NOTIFICATION_TOPIC: ${self:custom.common.notificationTopicArn}
+    onError: ${self:custom.common.notificationTopicArn}
+
+  agentLoginAsync:
+    handler: agent.loginAsync
+    description: "Sends an SNS message to trigger the agentLogin handler asynchronously, to avoid blocking. Invoked by Contact Flows directly."
+    environment:
+      AGENT_LOGIN_TOPIC: ${self:custom.common.agentLoginTopicArn}
+      NOTIFICATION_TOPIC: ${self:custom.common.notificationTopicArn}
+    onError: ${self:custom.common.notificationTopicArn}
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - sns:Publish
+        Resource:
+          - ${self:custom.common.agentLoginTopicArn}
+
+  processVoicemail:
+    handler: voicemail.process
+    description: "Processes new voicemail recordings by transcribing and sending them to an SNS topic."
+    events:
+      - s3:
+          bucket: ${self:custom.common.voicemailBucket}
+          event: s3:ObjectCreated:*
+    environment:
+      AGENT_LOGIN_TOPIC: ${self:custom.common.agentLoginTopicArn}
+      NOTIFICATION_TOPIC: ${self:custom.common.notificationTopicArn}
+      NOTIFICATION_TIMEZONE: Australia/Perth
+      LINK_EXPIRY_IN_DAYS: 7
+      CONNECT_REGION: ${self:custom.params.amazonConnectRegion}
+      CONNECT_LOG_GROUP: ${self:custom.params.amazonConnectLogGroupName}
+    onError: ${self:custom.common.notificationTopicArn}
+    iamRoleStatementsName: ${self:service}-${self:provider.stage}-processVoicemail-lambdaRole
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - logs:FilterLogEvents
+        Resource: ${self:custom.common.amazonConnectLogGroup}
+      - Effect: Allow
+        Action:
+          - transcribe:StartTranscriptionJob
+          - transcribe:GetTranscriptionJob
+        Resource: "*"
+      - Effect: Allow
+        Action:
+          - s3:GetObject
+        Resource: "arn:aws:s3:::${self:custom.common.voicemailBucket}/*"
+      - Effect: Allow
+        Action:
+          - sns:Publish
+        Resource:
+          - ${self:custom.common.notificationTopicArn}
+          - ${self:custom.common.agentLoginTopicArn}
+
+resources:
+  Resources:
+    # Some of these resources need to be named depending on the service/project
+    # name and other values used in the function's events config.
+    # See: https://serverless.com/framework/docs/providers/aws/guide/resources/
+    AgentLoginAsyncLambdaPermissionKzngroupAmazonConnect:
+      Type: "AWS::Lambda::Permission"
+      Properties:
+        FunctionName: "#{AgentLoginAsyncLambdaFunction.Arn}"
+        Principal: "connect.amazonaws.com"
+        Action: "lambda:InvokeFunction"
+        SourceAccount:
+          Ref: AWS::AccountId
+        SourceArn: ${self:custom.params.amazonConnectInstanceArn}
+    ProcessVoicemailLambdaPermissionKznvoicemailS3:
+      Type: "AWS::Lambda::Permission"
+      Properties:
+        FunctionName: "#{ProcessVoicemailLambdaFunction.Arn}"
+        Principal: "s3.amazonaws.com"
+        Action: "lambda:InvokeFunction"
+        SourceAccount:
+          Ref: AWS::AccountId
+        SourceArn: "arn:aws:s3:::${self:custom.common.voicemailBucket}"
+    SNSTopicKznvoicemail:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:custom.common.notificationTopic}
+    KMSAliasKznvoicemail:
+      Type: AWS::KMS::Alias
+      Properties:
+        AliasName: alias/${self:service}
+        TargetKeyId:
+          Ref: KMSKeyKznvoicemail
+    KMSKeyKznvoicemail:
+      Type: AWS::KMS::Key
+      DependsOn: ProcessVoicemailLambdaFunction
+      Properties:
+        Description: Encrypt call recordings in the voicemail S3 bucket.
+        Enabled: true
+        EnableKeyRotation: true
+        KeyPolicy: ${file(./kms-key-policy.json)}
+    S3BucketServerlessvoicemailrecordings:
+      Type: AWS::S3::Bucket
+      DependsOn: ProcessVoicemailLambdaPermissionServerlessvoicemailrecordingsS3
+      Properties:
+        BucketName: ${self:custom.common.voicemailBucket}
+        NotificationConfiguration:
+          LambdaConfigurations:
+            - Event: s3:ObjectCreated:*
+              Function: "#{ProcessVoicemailLambdaFunction.Arn}"
+        LifecycleConfiguration:
+          Rules:
+            - ExpirationInDays: ${self:custom.params.recordingRetentionInDays}
+              Status: Enabled
+
+package:
+  artifact: ./package.zip
+
+plugins:
+  - serverless-hooks-plugin
+  - serverless-iam-roles-per-function
+  - serverless-pseudo-parameters
