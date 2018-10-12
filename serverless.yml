@@ -68,9 +68,10 @@ functions:
         Resource:
           - ${self:custom.common.agentLoginTopicArn}
 
+functions:
   processVoicemail:
     handler: voicemail.process
-    description: "Processes new voicemail recordings by transcribing and sending them to an SNS topic."
+    description: "Processes new voicemail recordings by transcribing and notifying via an SNS topic."
     events:
       - s3:
           bucket: ${self:custom.common.voicemailBucket}

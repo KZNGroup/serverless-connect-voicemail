@@ -2,6 +2,9 @@
 
 A [Serverless Framework](https://github.com/serverless/serverless) project containing lamba's used to enable of voicemail functionality using Amazon Connect call recoding functionality.  
 
+For more information on how this works with Amazon Connect, see the companion blog post for this project:  
+[Creating a voicemail system with Amazon Connect Part 2](https://kzn.io/blog/2018/07/03/serverless-voicemail-with-amazon-connect-2/)  
+
 Headless-chrome on lambda parts for automating agent login are based on https://github.com/sambaiz/puppeteer-lambda-starter-kit
 
 ## Development
