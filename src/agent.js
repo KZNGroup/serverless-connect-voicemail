@@ -1,4 +1,5 @@
-const setup = require('./starter-kit/setup');
+const chromium = require('chrome-aws-lambda');
+const puppeteer = require('puppeteer-core');
 const sns = require('./aws/sns');
 
 const NOTIFICATION_TOPIC = process.env.NOTIFICATION_TOPIC;
@@ -10,14 +11,12 @@ const CALL_IN_PROGRESS_EVENT = 'CALL_IN_PROGRESS';
 
 /**
  * Trigger another lambda function via SNS, to avoid blocking calling processes
- * like Amazon Connect Contact Flows.
+ * like Amazon Connect Call Flows.
  *
  * @param {Object} event - The event that triggered our lambda.
- * @param {Object} context - Lambda context object.
- * @param {lambdaCallback} callback - Lambda callback function.
- * @return {void}
+ * @return {Object} result - Indicates successful run
  */
-exports.loginAsync = async (event, context, callback) => {
+exports.loginAsync = async (event) => {
   // Just send an SNS message to trigger the lambda
   // that does the logging in.
   try {
@@ -28,7 +27,7 @@ exports.loginAsync = async (event, context, callback) => {
       parameters,
       event: CALL_IN_PROGRESS_EVENT,
     });
-    return callback(null, {success: null, deferred: true});
+    return {success: null, deferred: true};
   } catch (err) {
     console.error(err);
     await sns.publish({
@@ -37,7 +36,7 @@ exports.loginAsync = async (event, context, callback) => {
       message: `Failure triggering voicemail agent to be available:
         ${err}`,
     });
-    return callback(err, {success: false, deferred: false});
+    throw err;
   }
 };
 
@@ -47,19 +46,22 @@ exports.loginAsync = async (event, context, callback) => {
  * voicemail messages.
  *
  * @param {Object} event - The event that triggered our lambda.
- * @param {Object} context - Lambda context object.
- * @param {lambdaCallback} callback - Lambda callback function.
  * @return {void}
  */
-exports.login = async (event, context, callback) => {
+exports.login = async (event) => {
   console.log('event:');
   console.log(JSON.stringify(event));
   try {
     // For keeping the browser launched
-    context.callbackWaitsForEmptyEventLoop = false;
-    const browser = await setup.getBrowser();
-    let result = await exports.run(browser);
-    return callback(null, result);
+    console.log('launching browser...');
+    const browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
+    });
+    console.log('running automation...');
+    return await exports.run(browser);
   } catch (err) {
     console.error(err);
     await sns.publish({
@@ -68,7 +70,7 @@ exports.login = async (event, context, callback) => {
       message: `Failure making voicemail agent available:
         ${err}`,
     });
-    return callback(err);
+    throw err;
   };
 };
 
@@ -92,7 +94,9 @@ exports.sendLoginEvent = async (params) => {
  * @return {void}
  */
 exports.run = async (browser) => {
+  console.log('opening new page');
   const page = await browser.newPage();
+  console.log('opened page');
   const url = CCP_URL;
 
   try {

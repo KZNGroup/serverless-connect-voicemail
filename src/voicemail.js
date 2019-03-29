@@ -20,11 +20,9 @@ const SEARCH_PERIOD_IN_DAYS = 1;
  *
  * @param {Object} event - The event that triggered our lambda,
  *                         containing S3 Object details.
- * @param {Object} context - Lambda context object.
- * @param {lambdaCallback} callback - Lambda callback function.
- * @return {void}
+ * @return {Object} result - Indicator of successful run
  */
-exports.process = async (event, context, callback) => {
+exports.process = async (event) => {
   // Agent would have just gotten off a call, so make it Available again
   // Errors are ignored so we still attempt the processing of the voicemail.
   try {
@@ -43,7 +41,7 @@ exports.process = async (event, context, callback) => {
 
     if (!voicemail.voicemail) {
       console.log('non-voicemail call, ignoring');
-      return callback(null, {success: true});
+      return {success: true};
     }
 
     voicemail.transcript = await transcribeRecording(voicemail);
@@ -51,7 +49,7 @@ exports.process = async (event, context, callback) => {
 
     await sendNotification(voicemail);
 
-    return callback(null, {success: true});
+    return {success: true};
   } catch (err) {
     console.error(err);
     await sns.publish({
@@ -60,7 +58,7 @@ exports.process = async (event, context, callback) => {
       message: `Voicemail processing encountered an error:
         ${err}`,
     });
-    return callback(err);
+    throw err;
   }
 };
 
@@ -103,8 +101,8 @@ async function getContactFlowLogs(contactId) {
  *
  * @param {Array} events - Contact flow log events to find attributes in.
  * @return {Object} attrs - The attributes found for the call.
- * @return {Object} attrs.callingNumber - Caller ID, if set by contact flow.
- * @return {Object} attrs.purpose - Purpose the call, if set by contact flow.
+ * @return {Object} attrs.callingNumber - Caller ID, if set by call flow.
+ * @return {Object} attrs.purpose - Purpose the call, if set by call flow.
  * @return {Object} attrs.voicemail - Whether the call should be processed as a
  *                                    voicemail message.
  */
@@ -341,7 +339,6 @@ Download (requires log-in): ${voicemail.consoleUrl}
 // JSDOC TYPE DEFINITIONS:
 
 /**
- * @callback lambdaCallback
  * @param {Error} an error if one occured, otherwise null.
  * @param {Object} response object.
  */
