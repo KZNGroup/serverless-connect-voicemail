@@ -2,7 +2,7 @@ service: serverless-voicemail
 
 provider:
   name: aws
-  runtime: nodejs8.10
+  runtime: nodejs10.x
   region: ${opt:region, 'us-east-1'} # Transcribe isn't in ap-southeast-2
   stage: ${opt:stage, 'prod'}
   logRetentionInDays: 30
