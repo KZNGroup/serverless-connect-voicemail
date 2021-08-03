@@ -15,7 +15,7 @@
     "chrome-aws-lambda": "^1.13.0",
     "luxon": "^1.2.1",
     "puppeteer-core": "^1.13.0",
-    "tar": "^4.0.1"
+    "tar": "^4.4.15"
   },
   "devDependencies": {
     "babel-cli": "^6.26.0",
