@@ -10,7 +10,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "aws-sdk": "^2.257.1",
+    "aws-sdk": "^2.814.0",
     "axios": "^0.18.0",
     "chrome-aws-lambda": "^1.13.0",
     "luxon": "^1.2.1",
