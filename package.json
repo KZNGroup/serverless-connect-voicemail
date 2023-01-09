@@ -13,7 +13,7 @@
     "aws-sdk": "^2.257.1",
     "axios": "^0.18.0",
     "chrome-aws-lambda": "^1.13.0",
-    "luxon": "^1.2.1",
+    "luxon": "^2.5.2",
     "puppeteer-core": "^1.13.0",
     "tar": "^4.0.1"
   },
